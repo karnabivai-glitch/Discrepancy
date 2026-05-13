@@ -3,148 +3,107 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IC Dashboard - Berca Retail Group</title>
+    <title>IC Discrepancy System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
     <style>
-        :root { --primary-blue: #004a99; }
-        body { background-color: #f4f7f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .header-banner { background: var(--primary-blue); color: white; padding: 1.5rem; margin-bottom: 2rem; }
-        .card { border: none; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .negative { color: #dc3545; font-weight: bold; }
-        .positive { color: #0d6efd; font-weight: bold; }
-        .table-container { background: white; padding: 20px; border-radius: 10px; margin-top: 20px; }
+        body { background-color: #f8f9fa; font-family: sans-serif; }
+        .card { border-radius: 15px; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .header { background: #004a99; color: white; padding: 20px; text-align: center; margin-bottom: 30px; }
+        .negative { color: red; font-weight: bold; }
+        .positive { color: blue; font-weight: bold; }
     </style>
 </head>
 <body>
 
-<div class="header-banner text-center">
-    <h2>Sistem Analisis Selisih (IC)</h2>
-    <p>Inventory Control - Berca Retail Group</p>
+<div class="header">
+    <h2>Sistem Rekonsiliasi Stok (IC)</h2>
 </div>
 
 <div class="container">
     <div class="row g-3">
         <div class="col-md-6">
             <div class="card p-4">
-                <label class="fw-bold mb-2">1. Upload AdminInventoryBalance (ERP)</label>
-                <input type="file" id="erpFile" class="form-control" accept=".csv">
+                <h6>File ERP (AdminInventoryBalance)</h6>
+                <input type="file" id="erpFile" class="form-control">
             </div>
         </div>
         <div class="col-md-6">
             <div class="card p-4">
-                <label class="fw-bold mb-2">2. Upload SCAN MR02 (Fisik)</label>
-                <input type="file" id="scanFile" class="form-control" accept=".csv">
+                <h6>File SCAN (Hasil Opname)</h6>
+                <input type="file" id="scanFile" class="form-control">
             </div>
         </div>
     </div>
 
     <div class="text-center mt-4">
-        <button class="btn btn-primary btn-lg px-5" onclick="mulaiProses()">Proses Rekonsiliasi</button>
+        <button class="btn btn-primary px-5 py-2" onclick="prosesData()">MULAI PROSES</button>
     </div>
 
-    <div id="resultSection" class="table-container d-none">
-        <h4>Hasil Discrepancy</h4>
-        <hr>
-        <div class="table-responsive">
-            <table class="table table-striped table-hover">
-                <thead>
+    <div id="outArea" class="mt-4 d-none">
+        <div class="card p-4">
+            <table class="table table-bordered">
+                <thead class="table-light">
                     <tr>
                         <th>Article</th>
                         <th>Description</th>
                         <th class="text-center">System</th>
                         <th class="text-center">Physical</th>
-                        <th class="text-center">Selisih</th>
+                        <th class="text-center">Diff</th>
                     </tr>
                 </thead>
-                <tbody id="tableBody"></tbody>
+                <tbody id="resultBody"></tbody>
             </table>
         </div>
     </div>
 </div>
 
 <script>
-    // Fungsi untuk memastikan PapaParse sudah siap
-    function parseCSV(file) {
-        return new Promise((resolve, reject) => {
-            if (typeof Papa === 'undefined') {
-                reject("Library PapaParse gagal dimuat. Periksa koneksi internet.");
-                return;
-            }
-            Papa.parse(file, {
-                header: true,
-                skipEmptyLines: 'greedy',
-                complete: (results) => resolve(results.data),
-                error: (err) => reject(err)
-            });
+async function prosesData() {
+    // Cek apakah library termuat
+    if (typeof Papa === 'undefined') {
+        alert("Gagal memuat library pemroses CSV. Pastikan Anda terhubung ke internet atau gunakan file papaparse.min.js lokal.");
+        return;
+    }
+
+    const f1 = document.getElementById('erpFile').files[0];
+    const f2 = document.getElementById('scanFile').files[0];
+    if(!f1 || !f2) return alert("Pilih kedua file!");
+
+    const body = document.getElementById('resultBody');
+    body.innerHTML = "<tr><td colspan='5' class='text-center'>Memproses...</td></tr>";
+    document.getElementById('outArea').classList.remove('d-none');
+
+    const parse = (file) => new Promise(res => Papa.parse(file, {header:true, skipEmptyLines:true, complete: r => res(r.data)}));
+    
+    try {
+        const erp = await parse(f1);
+        const scan = await parse(f2);
+
+        // Map Scan Fisik
+        const fisik = {};
+        scan.forEach(r => {
+            let a = r['Article'] || r['article'];
+            if(a) { a = a.trim(); fisik[a] = (fisik[a] || 0) + 1; }
         });
-    }
 
-    async function mulaiProses() {
-        const erpInput = document.getElementById('erpFile').files[0];
-        const scanInput = document.getElementById('scanFile').files[0];
+        body.innerHTML = "";
+        erp.forEach(r => {
+            const art = r['Product Code'];
+            if(!art || art.includes("Inventory") || art === "Product Code") return;
 
-        if (!erpInput || !scanInput) {
-            alert("Pilih kedua file terlebih dahulu!");
-            return;
-        }
+            const sys = parseInt(r['Quantity']) || 0;
+            const phy = fisik[art.trim()] || 0;
+            const diff = phy - sys;
 
-        const tableBody = document.getElementById('tableBody');
-        tableBody.innerHTML = "<tr><td colspan='5' class='text-center'>Memproses...</td></tr>";
-        document.getElementById('resultSection').classList.remove('d-none');
-
-        try {
-            const rawErp = await parseCSV(erpInput);
-            const rawScan = await parseCSV(scanInput);
-
-            // Hitung Scan Fisik
-            const fisikMap = {};
-            rawScan.forEach(row => {
-                const art = row['Article'] || row['article'];
-                if (art) {
-                    const key = art.trim();
-                    fisikMap[key] = (fisikMap[key] || 0) + 1;
-                }
-            });
-
-            // Bandingkan dengan ERP
-            tableBody.innerHTML = "";
-            rawErp.forEach(row => {
-                // Sesuai file AdminInventoryBalance Anda
-                const art = row['Product Code'];
-                if (!art || art === "Product Code" || art.includes("Inventory")) return;
-
-                const name = row['Name'] || "N/A";
-                const qtySistem = parseInt(row['Quantity']) || 0;
-                const qtyFisik = fisikMap[art.trim()] || 0;
-                const selisih = qtyFisik - qtySistem;
-
-                if (qtySistem === 0 && qtyFisik === 0) return;
-
-                const tr = document.createElement('tr');
-                let selisihHTML = selisih;
-                if (selisih < 0) {
-                    selisihHTML = `<span class="negative">(${Math.abs(selisih)})</span>`;
-                } else if (selisih > 0) {
-                    selisihHTML = `<span class="positive">+${selisih}</span>`;
-                }
-
-                tr.innerHTML = `
-                    <td>${art}</td>
-                    <td>${name}</td>
-                    <td class="text-center">${qtySistem}</td>
-                    <td class="text-center">${qtyFisik}</td>
-                    <td class="text-center">${selisihHTML}</td>
-                `;
-                tableBody.appendChild(tr);
-            });
-
-        } catch (err) {
-            alert("Error: " + err);
-            console.error(err);
-        }
-    }
+            const tr = document.createElement('tr');
+            let diffTxt = diff === 0 ? "0" : (diff > 0 ? `<span class="positive">+${diff}</span>` : `<span class="negative">(${Math.abs(diff)})</span>`);
+            
+            tr.innerHTML = `<td>${art}</td><td>${r['Name'] || ''}</td><td class="text-center">${sys}</td><td class="text-center">${phy}</td><td class="text-center">${diffTxt}</td>`;
+            body.appendChild(tr);
+        });
+    } catch(e) { alert("Error: " + e.message); }
+}
 </script>
-
 </body>
 </html>
